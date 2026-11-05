@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Черновик карточки товара</title>
+<style>
+  :root { --line: #d8dde3; --text: #1d2733; --muted: #66717e; --accent: #0b6bcb; --bad: #b3261e; --warn: #8a5a00; --ok: #1a7f4b; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #f4f6f8; color: var(--text); font: 15px/1.5 system-ui, "Segoe UI", Arial, sans-serif; }
+  main { max-width: 1180px; margin: 0 auto; padding: 24px 16px; display: grid; gap: 20px; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); align-items: start; }
+  h1 { grid-column: 1 / -1; margin: 0; font-size: 22px; }
+  section { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 16px; min-width: 0; }
+  h2 { margin: 18px 0 6px; font-size: 14px; display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+  h2:first-child { margin-top: 0; }
+  label { display: block; margin-top: 12px; font-weight: 600; font-size: 13px; }
+  input, textarea { width: 100%; margin-top: 4px; padding: 8px; border: 1px solid var(--line); border-radius: 6px; font: inherit; }
+  textarea { resize: vertical; }
+  .mono { font-family: Consolas, monospace; font-size: 13px; }
+  .hint { color: var(--muted); font-weight: 400; font-size: 12px; }
+  button { font: inherit; border: 1px solid var(--line); background: #fff; border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; padding: 9px 16px; margin-top: 14px; width: 100%; }
+  button.primary:disabled { opacity: .6; cursor: wait; }
+  button.small { font-size: 12px; font-weight: 400; padding: 2px 8px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; }
+  .tab[aria-selected="true"] { background: var(--text); color: #fff; border-color: var(--text); }
+  .text { white-space: pre-wrap; overflow-wrap: anywhere; }
+  table { border-collapse: collapse; width: 100%; }
+  td { border-top: 1px solid var(--line); padding: 5px 8px 5px 0; vertical-align: top; overflow-wrap: anywhere; }
+  td:first-child { width: 45%; color: var(--muted); }
+  .nodata { color: var(--bad); }
+  ul { margin: 4px 0; padding-left: 20px; }
+  .status { padding: 8px 12px; border-radius: 6px; margin-bottom: 12px; font-weight: 600; }
+  #form-error { margin: 14px 0 0; }
+  .status.ready { background: #e4f4ec; color: var(--ok); }
+  .status.needs_review { background: #fdf2dc; color: var(--warn); }
+  .status.error { background: #fbe9e7; color: var(--bad); }
+  .empty { color: var(--muted); }
+  [hidden] { display: none; }
+  @media (max-width: 860px) { main { grid-template-columns: minmax(0, 1fr); } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Черновик карточки товара</h1>
+
+  <section>
+    <div class="row">
+      <button class="tab" id="tab-fields" aria-selected="true" type="button">Поля</button>
+      <button class="tab" id="tab-json" aria-selected="false" type="button">JSON</button>
+    </div>
+
+    <div id="pane-fields">
+      <label>Название <input id="name" placeholder="Манометр показывающий DM 02"></label>
+      <label>Производитель <input id="manufacturer"></label>
+      <label>Характеристики <span class="hint">по одной в строке: название: значение</span>
+        <textarea id="specs" rows="8" class="mono" placeholder="диапазон измерений: 0-1,6 МПа"></textarea></label>
+      <label>Описание или фрагмент паспорта
+        <textarea id="description" rows="8"></textarea></label>
+    </div>
+
+    <div id="pane-json" hidden>
+      <label>Данные о товаре
+        <textarea id="json" rows="24" class="mono" spellcheck="false"></textarea></label>
+    </div>
+
+    <div class="status error" id="form-error" hidden></div>
+    <button class="primary" id="submit" type="button">Сделать черновик</button>
+  </section>
+
+  <section id="result"><p class="empty">Здесь появится черновик.</p></section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let mode = "fields";
+
+function specSeparator(line) {
+  const colon = line.indexOf(":");
+  return colon > 0 ? colon : line.indexOf("\t");
+}
+
+function specsFromText(text) {
+  const specs = {};
+  for (const line of text.split("\n")) {
+    const at = specSeparator(line);
+    if (at > 0) specs[line.slice(0, at).trim()] = line.slice(at + 1).trim();
+  }
+  return specs;
+}
+
+function badSpecLine() {
+  return $("specs").value.split("\n").find((line) => line.trim() && specSeparator(line) <= 0);
+}
+
+function fieldsToObject() {
+  return {
+    name: $("name").value,
+    manufacturer: $("manufacturer").value,
+    specs: specsFromText($("specs").value),
+    description: $("description").value,
+  };
+}
+
+function formError(message) {
+  $("form-error").textContent = message ?? "";
+  $("form-error").hidden = !message;
+}
+
+function setMode(next) {
+  if (next === mode) return;
+  formError();
+  if (next === "json") {
+    if (badSpecLine() !== undefined) {
+      formError(`В характеристиках нет двоеточия: ${badSpecLine()}`);
+      return;
+    }
+    $("json").value = JSON.stringify(fieldsToObject(), null, 2);
+  } else {
+    try {
+      const data = JSON.parse($("json").value);
+      $("name").value = data.name ?? "";
+      $("manufacturer").value = data.manufacturer ?? "";
+      $("description").value = data.description ?? "";
+      $("specs").value = Object.entries(data.specs ?? {}).map(([k, v]) => `${k}: ${v}`).join("\n");
+    } catch {
+      formError("JSON с ошибкой, поля заполнить не из чего. Исправьте его или нажмите «Сделать черновик».");
+      return;
+    }
+  }
+  mode = next;
+  $("pane-fields").hidden = next !== "fields";
+  $("pane-json").hidden = next !== "json";
+  $("tab-fields").setAttribute("aria-selected", next === "fields");
+  $("tab-json").setAttribute("aria-selected", next === "json");
+}
+
+function el(tag, text, className) {
+  const node = document.createElement(tag);
+  if (text !== undefined) node.textContent = text;
+  if (className) node.className = className;
+  return node;
+}
+
+function heading(title, copyText) {
+  const h = el("h2", title);
+  if (copyText !== undefined) {
+    const button = el("button", "Копировать", "small");
+    button.type = "button";
+    button.onclick = async () => {
+      await navigator.clipboard.writeText(copyText);
+      button.textContent = "Скопировано";
+      setTimeout(() => { button.textContent = "Копировать"; }, 1200);
+    };
+    h.append(button);
+  }
+  return h;
+}
+
+function list(items) {
+  const ul = el("ul");
+  items.forEach((item) => ul.append(el("li", item)));
+  return ul;
+}
+
+function showError(message) {
+  $("result").replaceChildren(el("div", message, "status error"));
+}
+
+function showResult(data) {
+  const { card } = data;
+  const box = $("result");
+  let statusText = "Есть замечания, смотрите блоки «Уточнить» и «Проверить вручную»";
+  if (data.status === "ready") {
+    statusText = data.missing_data.length
+      ? "Проверки пройдены, но часть данных отсутствует: смотрите блок «Уточнить»"
+      : "Проверки пройдены, черновик готов к вычитке";
+  }
+  const specsText = card.key_specs.map((s) => `${s.name}: ${s.value}`).join("\n");
+  const table = el("table");
+  card.key_specs.forEach((spec) => {
+    const tr = el("tr");
+    tr.append(el("td", spec.name), el("td", spec.value, spec.value === "данных нет" ? "nodata" : ""));
+    table.append(tr);
+  });
+  const commercialText = [card.commercial.audience, ...card.commercial.tasks.map((t) => `- ${t}`)].join("\n");
+
+  box.replaceChildren(
+    el("div", statusText, `status ${data.status}`),
+    heading(`SEO-заголовок (${card.seo_title.length} симв.)`, card.seo_title),
+    el("div", card.seo_title, "text"),
+    heading(`SEO-описание (${card.seo_description.length} симв.)`, card.seo_description),
+    el("div", card.seo_description, "text"),
+    heading("Характеристики", specsText),
+    table,
+    heading("Поисковые запросы", card.search_queries.join("\n")),
+    list(card.search_queries),
+    heading("Для менеджера", commercialText),
+    el("div", card.commercial.audience, "text"),
+    list(card.commercial.tasks),
+  );
+  if (data.missing_data.length) box.append(heading("Уточнить", data.missing_data.join("\n")), list(data.missing_data));
+  if (data.warnings.length) box.append(heading("Проверить вручную", data.warnings.join("\n")), list(data.warnings));
+  box.append(heading("Вся карточка в Markdown", data.markdown));
+}
+
+async function submit() {
+  formError();
+  if (mode === "fields" && badSpecLine() !== undefined) {
+    formError(`В характеристиках нет двоеточия: ${badSpecLine()}`);
+    return;
+  }
+  const body = mode === "json" ? $("json").value : JSON.stringify(fieldsToObject());
+  const button = $("submit");
+  button.disabled = true;
+  button.textContent = "Готовлю черновик...";
+  try {
+    const response = await fetch("/api/card", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+    });
+    const data = await response.json().catch(() => ({ error: "Сервис вернул непонятный ответ." }));
+    if (response.ok) showResult(data); else showError(data.error ?? "Ошибка сервера");
+  } catch {
+    showError("Сервис не отвечает. Проверьте, что он запущен.");
+  } finally {
+    button.disabled = false;
+    button.textContent = "Сделать черновик";
+  }
+}
+
+$("tab-fields").onclick = () => setMode("fields");
+$("tab-json").onclick = () => setMode("json");
+$("submit").onclick = submit;
+</script>
+</body>
+</html>
